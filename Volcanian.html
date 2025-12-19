@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Juego con Imágenes</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #111;
+            font-family: 'Segoe UI', sans-serif;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #menu-screen {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.85); /* Un poco más transparente para ver el fondo */
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+        
+        #levels-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-top: 30px;
+            max-width: 800px;
+        }
+
+        .level-btn {
+            background: #333;
+            border: 2px solid #555;
+            color: white;
+            padding: 20px;
+            font-size: 18px;
+            cursor: pointer;
+            transition: 0.2s;
+            border-radius: 8px;
+            width: 120px;
+        }
+        .level-btn:hover { background: #555; border-color: #0f0; transform: scale(1.05); }
+        .boss-level { border-color: #ff0000; color: #ffaaaa; }
+
+        canvas {
+            border: 4px solid #444;
+            background-color: #000;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+
+        #ui-hud {
+            position: absolute;
+            top: 20px;
+            pointer-events: none;
+            text-align: center;
+            display: none;
+            text-shadow: 2px 2px 4px #000;
+            width: 100%;
+        }
+        h1 { margin: 0; color: #ff4444; }
+        #boss-warning {
+            color: red; font-weight: bold; font-size: 30px; display: none;
+            background-color: rgba(0,0,0,0.5); padding: 10px;
+        }
+        
+        /* Mensaje de carga */
+        #loading-msg { position: absolute; bottom: 10px; color: #aaa; font-size: 12px; }
+    </style>
+</head>
+<body>
+
+    <div id="menu-screen">
+        <h1 style="font-size: 50px; color: #ff0000;">SELECCIONA NIVEL</h1>
+        <p>Versión Gráfica con Imágenes</p>
+        <div id="levels-grid"></div>
+        <p id="loading-msg">Si ves cuadrados de colores, es que no cargaron las imágenes (revisa los nombres).</p>
+    </div>
+
+    <div id="ui-hud">
+        <h1 id="level-title-display">NIVEL X</h1>
+        <p id="enemies-left">Enemigos: 0</p>
+        <div id="boss-warning">¡CORRE A LA ZONA VERDE!</div>
+    </div>
+
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+<script>
+    /* 
+    ========================================================================
+       ZONA DE NIVELES
+    ========================================================================
+    */
+
+    const LEVELS = [
+        // --- NIVEL 1 ---
+        {
+            title: "Nivel 1: El Comienzo",
+            setup: () => {
+                addWall(0, 300, 300, 20, 2);
+                addWall(500, 400, 300, 20, -3);
+                addEnemy(200, 100, '360', '#ff0000', 20); 
+                addEnemy(600, 100, 'giant', '#ff8800', 30);
+            }
+        },
+
+        // --- NIVEL 2 ---
+        {
+            title: "Nivel 2: El Sanador",
+            setup: () => {
+                addWall(0, 250, 350, 20, 4);
+                addWall(450, 450, 350, 20, -4);
+                addEnemy(150, 80, '360', '#ff0000', 20);
+                addEnemy(650, 80, 'giant', '#ff8800', 30);
+                addEnemy(400, 50, 'healer', '#aa00ff', 40);
+            }
+        },
+
+        // --- NIVEL 3 ---
+        {
+            title: "Nivel 3: Asedio",
+            setup: () => {
+                addWall(100, 200, 100, 20, 2);
+                addWall(600, 400, 100, 20, -2);
+                addEnemy(100, 100, 'giant', '#ff8800', 25);
+                addEnemy(700, 100, 'giant', '#ff8800', 25);
+                addEnemy(400, 50, 'healer', '#aa00ff', 30);
+            }
+        },
+
+        // --- NIVEL 4: BOSS ---
+        {
+            title: "NIVEL 4: EL JEFE Y SU ESCOLTA",
+            isBoss: true,
+            setup: () => {
+                addEnemy(400, 150, 'boss', '#880000', 300); 
+                addEnemy(550, 150, 'giant', '#ff8800', 60);
+            }
+        },
+
+        // --- NIVEL 5: EL LABERINTO ---
+        {
+            title: "Nivel 5: Rebotes Mortales",
+            setup: () => {
+                addWall(200, 100, 20, 300, 0); 
+                addWall(400, 200, 20, 300, 0); 
+                addWall(600, 100, 20, 300, 0);
+                addWall(0, 400, 150, 20, 0);
+                addWall(650, 200, 150, 20, 0);
+                addWall(250, 500, 300, 20, 3);
+                addEnemy(100, 100, 'bouncer', '#00ccff', 25);
+                addEnemy(700, 50, 'bouncer', '#00ccff', 25);
+                addEnemy(400, 50, '360', '#ff0000', 20);
+            }
+        }
+    ];
+
+    /* 
+    ========================================================================
+       SISTEMA DE IMÁGENES (AQUÍ CAMBIAS LOS NOMBRES)
+    ========================================================================
+    */
+    
+    // Cambia el texto de la derecha por el nombre REAL de tu archivo png
+    const spriteSources = {
+        fondo:   'fondo.png',       // Fondo del juego
+        player:  'jugador.png',     // Tu personaje
+        
+        // Enemigos según su tipo:
+        '360':     'enemigo1.png',  // El rojo que dispara en circulo
+        'giant':   'enemigo2.png',  // El naranja gigante
+        'bouncer': 'enemigo3.png',  // El azul que rebota
+        'healer':  'enemigo4.png',  // El morado (si aparece)
+        'boss':    'enemigo5.png'       // El jefe final
+    };
+
+    // Objeto para guardar las imágenes cargadas
+    const loadedSprites = {};
+
+    // Función para cargar las imágenes al inicio
+    function loadGameImages() {
+        for (let key in spriteSources) {
+            let img = new Image();
+            img.src = spriteSources[key];
+            loadedSprites[key] = img;
+        }
+    }
+    
+    // Llamamos a cargar
+    loadGameImages();
+
+    /* 
+    ========================================================================
+       MOTOR DEL JUEGO
+    ========================================================================
+    */
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const hud = document.getElementById('ui-hud');
+    const warningText = document.getElementById('boss-warning');
+    
+    let currentLevelIndex = 0;
+    let gameState = 'menu'; 
+    let frameCount = 0;
+
+    const player = { x: 400, y: 550, width: 30, height: 30, color: '#00ff00', speed: 5, bullets: [] }; // Aumenté un poco el tamaño para ver mejor la imagen
+    let enemies = [];
+    let walls = [];
+    let enemyBullets = [];
+    let particles = [];
+    const keys = {};
+    let bossSystem = { phase: 0, timer: 0, rotation: 0, safeZone: { x: 0, w: 0 }, fireActive: false };
+
+    // --- SETUP ---
+    function addWall(x, y, w, h, dx) { walls.push({ x, y, w, h, dx, color: '#555' }); }
+    function addEnemy(x, y, type, color, hp) {
+        let size = (type === 'boss') ? 100 : (type === 'giant' ? 60 : 40); // Ajuste tamaños para imágenes
+        if(type === 'healer') size = 35;
+        enemies.push({ 
+            x, y, width: size, height: size, 
+            color, hp, maxHp: hp, type, timer: Math.random() * 50
+        });
+    }
+
+    function initMenu() {
+        gameState = 'menu';
+        document.getElementById('menu-screen').style.display = 'flex';
+        hud.style.display = 'none';
+        const grid = document.getElementById('levels-grid');
+        grid.innerHTML = '';
+
+        LEVELS.forEach((level, index) => {
+            let btn = document.createElement('button');
+            btn.className = 'level-btn';
+            if(level.isBoss) btn.classList.add('boss-level');
+            btn.innerText = (index + 1) % 4 === 0 ? `Nivel ${index+1}\n☠️` : `Nivel ${index+1}`;
+            btn.onclick = () => startLevel(index);
+            grid.appendChild(btn);
+        });
+    }
+
+    function startLevel(index) {
+        if (index >= LEVELS.length) { alert("¡Juego completado!"); initMenu(); return; }
+        currentLevelIndex = index;
+        gameState = 'playing';
+        document.getElementById('menu-screen').style.display = 'none';
+        hud.style.display = 'block';
+        warningText.style.display = 'none';
+        
+        player.x = 400; player.y = 550; player.bullets = [];
+        enemies = []; walls = []; enemyBullets = []; particles = [];
+        frameCount = 0;
+        bossSystem = { phase: 0, timer: 0, rotation: 0, safeZone: {x:0, w:0}, fireActive: false };
+
+        const levelData = LEVELS[index];
+        document.getElementById('level-title-display').innerText = levelData.title;
+        levelData.setup();
+    }
+
+    // --- UPDATE LOOP ---
+    window.addEventListener('keydown', (e) => keys[e.code] = true);
+    window.addEventListener('keyup', (e) => {
+        keys[e.code] = false;
+        if (e.code === 'Space' && gameState === 'playing') shoot();
+        if (e.code === 'Enter') {
+            if (gameState === 'gameover') startLevel(currentLevelIndex);
+            if (gameState === 'victory') startLevel(currentLevelIndex + 1);
+        }
+        if (e.code === 'Escape') initMenu();
+    });
+
+    function shoot() {
+        player.bullets.push({ x: player.x + player.width/2 - 2.5, y: player.y, w: 5, h: 10, color: '#ffff00', dy: -10 });
+    }
+
+    function update() {
+        if (gameState !== 'playing') return;
+        frameCount++;
+
+        if ((keys['ArrowUp'] || keys['KeyW']) && player.y > 0) player.y -= player.speed;
+        if ((keys['ArrowDown'] || keys['KeyS']) && player.y < canvas.height - player.height) player.y += player.speed;
+        if ((keys['ArrowLeft'] || keys['KeyA']) && player.x > 0) player.x -= player.speed;
+        if ((keys['ArrowRight'] || keys['KeyD']) && player.x < canvas.width - player.width) player.x += player.speed;
+
+        walls.forEach(w => {
+            w.x += w.dx;
+            if (w.x <= 0 || w.x + w.w >= canvas.width) w.dx *= -1;
+            if (rectIntersect(player.x, player.y, player.width, player.height, w.x, w.y, w.w, w.h)) {
+                let centersDiffX = (player.x + player.width/2) - (w.x + w.w/2);
+                let centersDiffY = (player.y + player.height/2) - (w.y + w.h/2);
+                if(Math.abs(centersDiffX) > Math.abs(centersDiffY)) {
+                    player.x = centersDiffX > 0 ? w.x + w.w + 1 : w.x - player.width - 1;
+                } else {
+                    player.y = centersDiffY > 0 ? w.y + w.h + 1 : w.y - player.height - 1;
+                }
+            }
+        });
+
+        enemies.forEach(e => {
+            e.timer++;
+            if (e.type === 'boss') {
+                bossSystem.timer++;
+                if (bossSystem.timer > 400) {
+                    bossSystem.phase = (bossSystem.phase + 1) % 2;
+                    bossSystem.timer = 0; bossSystem.fireActive = false; warningText.style.display = 'none';
+                    if (bossSystem.phase === 1) bossSystem.safeZone = { x: Math.random()*(canvas.width*0.88), w: canvas.width*0.12 };
+                }
+                if (bossSystem.phase === 0) {
+                    bossSystem.rotation += 0.05;
+                    if (frameCount % 5 === 0) for(let i=0;i<360;i+=45) spawnBulletDir(e.x+e.width/2, e.y+e.height/2, (i*Math.PI/180)+bossSystem.rotation, 5, 4, '#ff5555');
+                }
+                if (bossSystem.phase === 1) {
+                    if (bossSystem.timer < 240) {
+                        warningText.style.display = 'block'; warningText.innerText = "¡ZONA VERDE!"; warningText.style.color = (frameCount%20<10)?'red':'yellow';
+                    } else if (bossSystem.timer < 350) {
+                        bossSystem.fireActive = true; warningText.innerText = "¡QUEMANDO!"; warningText.style.color = 'white';
+                        let pcx = player.x + player.width/2;
+                        if (pcx < bossSystem.safeZone.x || pcx > bossSystem.safeZone.x + bossSystem.safeZone.w) gameState = 'gameover';
+                    } else { bossSystem.fireActive = false; warningText.style.display = 'none'; }
+                }
+            }
+            else {
+                e.y += Math.sin(frameCount / 40 + e.x) * 0.5;
+                if (e.type === 'bouncer' && e.timer > 100) {
+                    let angle = Math.atan2(player.y - e.y, player.x - e.x);
+                    let b = spawnBulletDir(e.x + e.width/2, e.y + e.height/2, angle, 6, 5, '#00ccff');
+                    b.bounces = 3; e.timer = 0;
+                }
+                else if (e.type === 'healer' && frameCount % 120 === 0) spawnBullet(e, player, 6, 7, '#aa00ff');
+                else if (e.type === 'giant' && e.timer > 180) { spawnBullet(e, player, 25, 4, '#ff4400'); e.timer = 0; }
+                else if (e.type === '360' && e.timer > 120) { for(let i=0; i<360; i+=45) spawnBulletDir(e.x+e.width/2, e.y+e.height/2, i*Math.PI/180, 4, 3, '#ffaaaa'); e.timer = 0; }
+            }
+        });
+
+        updatePlayerBullets();
+        updateEnemyBullets();
+        particles.forEach((p, i) => { p.y--; p.life--; if(p.life<=0) particles.splice(i,1); });
+
+        if (enemies.length === 0) gameState = 'victory';
+        document.getElementById('enemies-left').innerText = "Enemigos: " + enemies.length;
+    }
+
+    function draw() {
+        if(gameState === 'menu') return;
+
+        // 1. DIBUJAR FONDO
+        // Si la imagen cargó, la usamos. Si no, fondo negro.
+        if (loadedSprites.fondo && loadedSprites.fondo.complete && loadedSprites.fondo.naturalWidth !== 0) {
+            ctx.drawImage(loadedSprites.fondo, 0, 0, canvas.width, canvas.height);
+        } else {
+            ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // Efecto Fuego Boss
+        if (bossSystem.phase === 1 && enemies.some(e => e.type === 'boss')) {
+            ctx.fillStyle = bossSystem.fireActive ? 'rgba(255, 50, 0, 0.6)' : 'rgba(80, 0, 0, 0.6)'; // Transparente para ver el fondo
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = bossSystem.fireActive ? 'rgba(0, 255, 0, 0.5)' : 'rgba(0, 70, 0, 0.5)';
+            ctx.fillRect(bossSystem.safeZone.x, 0, bossSystem.safeZone.w, canvas.height);
+        }
+
+        // Paredes
+        walls.forEach(w => { 
+            ctx.fillStyle = w.color; ctx.fillRect(w.x, w.y, w.w, w.h); 
+            ctx.strokeStyle='#aaa'; ctx.strokeRect(w.x,w.y,w.w,w.h); 
+        });
+        
+        // 2. DIBUJAR JUGADOR
+        if (gameState !== 'gameover') { 
+            let pImg = loadedSprites.player;
+            if (pImg && pImg.complete && pImg.naturalWidth !== 0) {
+                ctx.drawImage(pImg, player.x, player.y, player.width, player.height);
+            } else {
+                ctx.fillStyle = player.color; ctx.fillRect(player.x, player.y, player.width, player.height);
+            }
+        }
+
+        // 3. DIBUJAR ENEMIGOS
+        enemies.forEach(e => {
+            // Seleccionar imagen según el tipo de enemigo
+            let enemyImg = loadedSprites[e.type];
+            
+            // Si existe la imagen y cargó, la dibujamos
+            if (enemyImg && enemyImg.complete && enemyImg.naturalWidth !== 0) {
+                ctx.drawImage(enemyImg, e.x, e.y, e.width, e.height);
+            } else {
+                // Si no hay imagen o falló, dibujamos el cuadrado de color antiguo
+                ctx.fillStyle = e.color; ctx.fillRect(e.x, e.y, e.width, e.height);
+            }
+
+            // Barra de vida
+            let pct = Math.max(0, e.hp / e.maxHp);
+            ctx.fillStyle = 'red'; ctx.fillRect(e.x, e.y - 8, e.width, 4);
+            ctx.fillStyle = '#0f0'; ctx.fillRect(e.x, e.y - 8, e.width * pct, 4);
+            if(e.type === 'boss') { ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.strokeRect(e.x,e.y,e.width,e.height); }
+        });
+
+        // Balas
+        ctx.fillStyle = '#ff0'; player.bullets.forEach(b => ctx.fillRect(b.x, b.y, b.w, b.h));
+        
+        enemyBullets.forEach(b => { 
+            ctx.beginPath(); ctx.arc(b.x, b.y, b.radius, 0, Math.PI*2); 
+            ctx.fillStyle = b.color; ctx.fill(); 
+            if(b.bounces > 0) { ctx.strokeStyle='white'; ctx.lineWidth=2; ctx.stroke(); }
+        });
+        
+        ctx.fillStyle = '#0f0'; ctx.font='14px Arial'; particles.forEach(p => ctx.fillText(p.text, p.x, p.y));
+
+        if (gameState === 'gameover') drawOverlay("GAME OVER", "Enter para reintentar", "red");
+        if (gameState === 'victory') drawOverlay("¡NIVEL COMPLETADO!", "Enter para siguiente nivel", "#0f0");
+    }
+
+    // --- FUNCIONES AUXILIARES ---
+    function spawnBullet(origin, target, size, speed, color) {
+        let angle = Math.atan2(target.y - origin.y, target.x - origin.x);
+        return spawnBulletDir(origin.x + origin.width/2, origin.y + origin.height/2, angle, size, speed, color);
+    }
+    function spawnBulletDir(x, y, angle, size, speed, color) {
+        let b = { x, y, radius: size, dx: Math.cos(angle)*speed, dy: Math.sin(angle)*speed, color, bounces: 0 };
+        enemyBullets.push(b);
+        return b;
+    }
+    
+    function updatePlayerBullets() {
+        for (let i = player.bullets.length - 1; i >= 0; i--) {
+            let b = player.bullets[i]; b.y += b.dy; let hit = false;
+            walls.forEach(w => { if (rectIntersect(b.x, b.y, b.w, b.h, w.x, w.y, w.w, w.h)) hit = true; });
+            if (!hit) {
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    let e = enemies[j];
+                    if (rectIntersect(b.x, b.y, b.w, b.h, e.x, e.y, e.width, e.height)) {
+                        e.hp--; hit = true; if (e.hp <= 0) enemies.splice(j, 1); break;
+                    }
+                }
+            }
+            if (b.y < 0 || hit) player.bullets.splice(i, 1);
+        }
+    }
+
+    function updateEnemyBullets() {
+        for (let i = enemyBullets.length - 1; i >= 0; i--) {
+            let b = enemyBullets[i]; b.x += b.dx; b.y += b.dy;
+            let hitWall = false;
+            for (let w of walls) {
+                if (rectIntersect(b.x - b.radius, b.y - b.radius, b.radius*2, b.radius*2, w.x, w.y, w.w, w.h)) {
+                    hitWall = true;
+                    if (b.bounces > 0) {
+                        let prevX = b.x - b.dx;
+                        if (prevX + b.radius <= w.x || prevX - b.radius >= w.x + w.w) b.dx *= -1;
+                        else b.dy *= -1;
+                        b.bounces--; b.x += b.dx; b.y += b.dy;
+                    } else enemyBullets.splice(i, 1);
+                    break;
+                }
+            }
+            if (!hitWall) {
+                if (Math.hypot(b.x-(player.x+player.width/2), b.y-(player.y+player.height/2)) < b.radius + player.width/2.5) gameState = 'gameover';
+                if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) enemyBullets.splice(i, 1);
+            }
+        }
+    }
+
+    function drawOverlay(t, s, c) {
+        ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.fillStyle = c; ctx.font='40px Arial'; ctx.textAlign='center'; ctx.fillText(t, 400, 280);
+        ctx.fillStyle = 'white'; ctx.font='20px Arial'; ctx.fillText(s, 400, 330);
+    }
+    function rectIntersect(x1, y1, w1, h1, x2, y2, w2, h2) { return x2 < x1 + w1 && x2 + w2 > x1 && y2 < y1 + h1 && y2 + h2 > y1; }
+
+    initMenu();
+    function loop() { update(); draw(); requestAnimationFrame(loop); }
+    loop();
+</script>
+</body>
+</html>
